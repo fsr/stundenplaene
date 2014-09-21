@@ -1,3 +1,7 @@
+{-# LANGUAGE QuasiQuotes #-}
+
+import Text.Hamlet
+import Text.Blaze.Renderer.String -- TODO: choose better instance, UTF8 and stuff...
 import Text.XML.Light
 import Data.List (transpose)
 import Data.List.Split (chunksOf, splitOn)
@@ -22,58 +26,39 @@ starttimes = ["7:30", "9:20",  "11:10", "13:00", "14:50", "16:40", "18:30"]
 endtimes   = ["9:00", "10:50", "12:40", "14:30", "16:20", "18:10", "20:00"]
 timespans = zipWith (\a b -> a++" - "++b) starttimes endtimes
 
-main = --readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "output.htm" . concatMap ppContent . concatMap getPlanAsTable . (:[]) . parseInputText
-       readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "/tmp/output.htm" . concatMap ppContent . concatMap getPlanAsTable . parseInputHtml
+main = readFile "/home/sjm/programming/stundenplaene/clean.txt" >>= writeFile "output.htm" . concatMap (getPlanAsHtml . parseInputText) . tail . splitOn "INF 1"
+       -- readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "/tmp/output.htm" . concatMap ppContent . concatMap getPlanAsTable . parseInputHtml
 
-getPlanAsTable :: (String, [Day]) -> [Content]
-getPlanAsTable (pname, p) = map Elem [ unode "h2" pname
-                                     , add_attr (Attr (unqual "border") "2")
-                                                (unode "table" $ weekdaysRow
-                                                                 : ( concatMap getTimeslotRows
-                                                                   $ zip [1..]
-                                                                   $ transpose p ))
-                                                               -- transpose because tables are read horizontally
-                                     , unode "br" ()
-                                     , unode "br" ()
-                                     ]
-    where
-        weekdaysRow :: Element
-        weekdaysRow = unode "tr"
-                    $ giveClass "plan_leer" (unode "td" pname)
-                      : map ( add_attr (Attr (unqual "colspan") "2")
-                            . giveClass "plan_tage"
-                            . unode "td"
-                            )
-                          germanweekdays
-        getTimeslotRows :: (Int, Timeslot) -> [Element]
-        getTimeslotRows (nr, slots) = [ unode "tr"
-                                      $ giveClass "plan_stunden" (unode "td" $ show nr ++ ". DS")
-                                        : (map getSlotName slots)
-                                      , unode "tr"
-                                      $ giveClass "plan_uhrzeit" (unode "td" $ timespans !! (nr - 1))
-                                        : (concatMap getSlotDetails slots)
-                                      ]
-        getSlotName :: Slot -> Element
-        getSlotName slot = add_attr (Attr (unqual "colspan") "2")
-                         . giveClass "plan_name"
-                         . unode "td"
-                         $ case slot of
-                               Nothing -> ""
-                               Just e  -> sname e
-        getSlotDetails :: Slot -> [Element]
-        getSlotDetails slot = [ giveClass "plan_dozent"
-                              . unode "td"
-                              $ case slot of
-                                    Nothing -> ""
-                                    Just e  -> steacher e
-                              , giveClass "plan_raum"
-                              . unode "td"
-                              $ case slot of
-                                    Nothing -> ""
-                                    Just e  -> sroom e
-                              ]
-        giveClass :: String -> Element -> Element
-        giveClass str = add_attr (Attr (unqual "class") str)
+getPlanAsHtml :: (String, [Day]) -> String
+getPlanAsHtml (pname, p) = renderMarkup
+                         $ let slotlist = zip [1..] $ transpose p
+                           in -- transpose because tables are read horizontally
+    [shamlet|
+        <h2>#{pname}
+        <table border=2>
+           <tr>
+               <td .plan_leer>#{pname}
+               $forall day <- germanweekdays
+                   <td .plan_tage colspan=2>#{day}
+           $forall (nr, slots) <- slotlist
+               <tr>
+                   <td .plan_stunden> #{nr}. DS
+                   $forall slot <- slots
+                       <td .plan_name colspan=2>
+                           $maybe e <- slot
+                               #{sname e}
+               <tr>
+                   <td .plan_uhrzeit> #{timespans !! (nr - 1)}
+                   $forall slot <- slots
+                       <td .plan_dozent>
+                           $maybe e <- slot
+                               #{steacher e}
+                       <td .plan_raum>
+                           $maybe e <- slot
+                               #{sroom e}
+        <br>
+        <br>
+    |]
 
 parseInputHtml :: String -> [(String, [Day])]
 parseInputHtml = (:[]) . parseTable . head
