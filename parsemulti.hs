@@ -17,9 +17,8 @@ data Event = Event { sname    :: String
                    }
              deriving Eq
 type Slot = Maybe Event
-type Day = [Slot]
-type Timeslot = [Slot]
--- TODO [Slot] ambigous -> newtype
+newtype Day = Day [Slot]
+newtype Timeslot = Timeslot [Slot]
 
 germanweekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
 starttimes = ["7:30", "9:20",  "11:10", "13:00", "14:50", "16:40", "18:30"]
@@ -30,9 +29,7 @@ main = readFile "/home/sjm/programming/stundenplaene/clean.txt" >>= writeFile "o
        -- readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "/tmp/output.htm" . concatMap ppContent . concatMap getPlanAsTable . parseInputHtml
 
 getPlanAsHtml :: (String, [Day]) -> String
-getPlanAsHtml (pname, p) = renderMarkup
-                         $ let slotlist = zip [1..] $ transpose p
-                           in -- transpose because tables are read horizontally
+getPlanAsHtml (pname, p) = renderMarkup $
     [shamlet|
         <h2>#{pname}
         <table border=2>
@@ -40,7 +37,7 @@ getPlanAsHtml (pname, p) = renderMarkup
                <td .plan_leer>#{pname}
                $forall day <- germanweekdays
                    <td .plan_tage colspan=2>#{day}
-           $forall (nr, slots) <- slotlist
+           $forall (nr, Timeslot slots) <- slotlist
                <tr>
                    <td .plan_stunden> #{nr}. DS
                    $forall slot <- slots
@@ -59,6 +56,12 @@ getPlanAsHtml (pname, p) = renderMarkup
         <br>
         <br>
     |]
+    where
+        slotlist = zip [1..] $ transpose' p
+        -- transpose' because tables are written horizontally
+        transpose' :: [Day] -> [Timeslot]
+        transpose' = map Timeslot . transpose . map (\(Day d) -> d)
+
 
 parseInputHtml :: String -> [(String, [Day])]
 parseInputHtml = (:[]) . parseTable . head
@@ -112,6 +115,7 @@ parseInputHtml = (:[]) . parseTable . head
                                         then x : repeatEvents xs
                                         else x : x : repeatEvents xs
 
+
 parseInputText :: String -> (String, [Day])
 parseInputText fullplan = (last . splitOn " " . head . lines $ fullplan, createplan . tail . lines $ fullplan)
     where
@@ -126,4 +130,4 @@ parseInputText fullplan = (last . splitOn " " . head . lines $ fullplan, createp
 
 sorteventsintoplan :: [Event] -> [Day]
 sorteventsintoplan ellist = map (\w -> createday . filter ((==) w . sweekday) $ ellist) germanweekdays
-    where createday els = map (\t -> if t `elem` (map sstart els) then Just (head . filter ((==) t . sstart) $ els) else Nothing) starttimes
+    where createday els = Day $ map (\t -> if t `elem` (map sstart els) then Just (head . filter ((==) t . sstart) $ els) else Nothing) starttimes
