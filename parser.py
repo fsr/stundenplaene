@@ -47,7 +47,7 @@ class Event(object):
     
 def loadFileToString(filename):
     with open (filename, "r") as myfile:
-        data=myfile.read()
+        data=myfile.read().replace('&nbsp;', 'leer')
     return data
 
 
@@ -111,12 +111,12 @@ def getEventFromElement(eventfield, day, slot):
             
 def giveTableAsJson(table, filename):
     obj=MyEncoder().encode(table)
-    print(json.dumps(obj))
-    #with open(filename, 'w') as outfile:
-    #    json.dump(table, outfile)
+    with open(filename, 'w') as outfile:
+        json.dump(obj, outfile)
        
+
 if __name__ == '__main__':
-    giveTableAsJson(getTable(loadFileToString('140918_studentensets.htm')), 'InfBa_01.html')
+    giveTableAsJson(getTable(loadFileToString('140918_studentensets.htm')), 'InfBa_01.json')
         
       
       
