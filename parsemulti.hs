@@ -2,7 +2,7 @@ import Text.XML.Light
 import Data.List (transpose)
 import Data.List.Split (chunksOf, splitOn)
 import Data.Maybe (fromJust, catMaybes)
-import Debug.Trace (trace)
+import Debug.Trace (traceShow, trace)
 
 data Event = Event { sname    :: String
                    , sweekday :: String
@@ -11,27 +11,28 @@ data Event = Event { sname    :: String
                    , sroom    :: String
                    , steacher :: String
                    }
-             deriving Eq
-type Slot = Maybe Event
-type Day = [Slot]
-type Timeslot = [Slot]
+             deriving (Eq, Show)
+type Slot = Maybe Event -- deriving Show
+type Day = [Slot] -- deriving Show
+type Timeslot = [Slot] -- deriving Show
 -- TODO [Slot] ambigous -> newtype
-
+--(String, [Day])
 germanweekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
 starttimes = ["7:30", "9:20",  "11:10", "13:00", "14:50", "16:40", "18:30"]
 endtimes   = ["9:00", "10:50", "12:40", "14:30", "16:20", "18:10", "20:00"]
 timespans = zipWith (\a b -> a++" - "++b) starttimes endtimes
 
-main = --readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "output.htm" . concatMap ppContent . concatMap getPlanAsTable . (:[]) . parseInputText
-       readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "/tmp/output.htm" . concatMap ppContent . concatMap getPlanAsTable . parseInputHtml
-
+main = 
+--readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "output.htm" . concatMap ppContent . concatMap getPlanAsTable . (:[]) . parseInputText
+      readFile "input.htm"  >>= writeFile "output.htm" .  concatMap ppContent . concatMap getPlanAsTable . (\o -> trace (show  o) o) . parseInputHtml
+--  . parseInputHtml
 getPlanAsTable :: (String, [Day]) -> [Content]
-getPlanAsTable (pname, p) = map Elem [ unode "h2" pname
-                                     , add_attr (Attr (unqual "border") "2")
+getPlanAsTable (pname, p) =  map Elem [ unode "h2" pname
+                                     ,  add_attr (Attr ( unqual "border") "2")
                                                 (unode "table" $ weekdaysRow
                                                                  : ( concatMap getTimeslotRows
                                                                    $ zip [1..]
-                                                                   $ transpose p ))
+                                                                   $ transpose  p ))
                                                                -- transpose because tables are read horizontally
                                      , unode "br" ()
                                      , unode "br" ()
@@ -50,7 +51,7 @@ getPlanAsTable (pname, p) = map Elem [ unode "h2" pname
                                       $ giveClass "plan_stunden" (unode "td" $ show nr ++ ". DS")
                                         : (map getSlotName slots)
                                       , unode "tr"
-                                      $ giveClass "plan_uhrzeit" (unode "td" $ timespans !! (nr - 1))
+                                      $ giveClass "plan_uhrzeit" (unode "td" $   timespans !! (nr - 1))
                                         : (concatMap getSlotDetails slots)
                                       ]
         getSlotName :: Slot -> Element
@@ -84,29 +85,31 @@ parseInputHtml = (:[]) . parseTable . head
     where
         parseTable :: [Element] -> (String, [Day])
         parseTable [headtable, contenttable] = ( getCaption
-                                               . head
-                                               . elContent
-                                               . firstChild
-                                               . lastChild
-                                               . lastChild
-                                               . lastChild
-                                               . lastChild
-                                               $ headtable, sorteventsintoplan
-                                                          . (\o -> trace (show $ length o) o)
-                                                          . catMaybes
-                                                          . concatMap (uncurry getEventsPerTimeslot)
-                                                          . zip [0..]
-                                                          . map ( zip [0..]
-                                                                . map head     -- drop every 
-                                                                . chunksOf 2   -- second (useless), after we
-                                                                . repeatEvents -- repeat proper 2-hour cells once
-                                                                . tail
-                                                                . elChildren)
-                                                          . tail
-                                                          . elChildren
-                                                          $ contenttable )
+               . head
+               . elContent
+               . firstChild
+               . lastChild
+               . lastChild
+               . lastChild
+               . lastChild
+               $ headtable, 
+           sorteventsintoplan
+              . (\o -> trace (show   o) o)
+              . catMaybes
+              . concatMap (uncurry getEventsPerTimeslot)
+              . zip [0..]
+              . map ( zip [0..]
+                    . map head     -- drop every 
+                    . chunksOf 2   -- second (useless), after we
+                    . repeatEvents -- repeat proper 2-hour cells once
+                    . tail
+                    . elChildren)
+              . tail
+              . elChildren
+              $ contenttable )
             where
                 getCaption (Text (CData _ s _)) = drop 3 . last $ splitOn " " s
+                getName (Text (CData _ s _)) = s
                 firstChild = head . elChildren
                 lastChild = last . elChildren
                 getEventsPerTimeslot :: Int -> [(Int, Element)] -> [Slot]
@@ -114,12 +117,49 @@ parseInputHtml = (:[]) . parseTable . head
                 getSlot :: Int -> (Int, Element) -> Slot
                 getSlot slotnr (daynr, e) = if (max slotnr daynr > 6) then error (show . head . tail $ elContent e) else case tail $ elContent e of
                                                  [] -> Nothing
-                                                 (Elem table : _)  -> Just $ Event "Foo"
-                                                                                   (germanweekdays !! daynr)
-                                                                                   (starttimes !! slotnr)
-                                                                                   (endtimes !! slotnr)
-                                                                                   "y"
-                                                                                   "x"
+                                                 (Elem table : _)  -> Just $ Event ( getName
+                                                    . head
+                                                        . elContent 
+                                                        . head
+                                                        . elChildren
+                                                        . head 
+                                                        . elChildren  
+                                                        . head 
+                                                        . tail
+                                                        . tail 
+                                                        . elChildren 
+                                                        . head 
+                                                        . tail
+                                                        . elChildren 
+                                                        $ e )
+                                                       (germanweekdays !! daynr)
+                                                       (starttimes !! slotnr)
+                                                       (endtimes !! slotnr)
+                                                       (getName
+                                                            . head
+                                                            . elContent 
+                                                            . head 
+                                                            . elChildren
+                                                            . last 
+                                                            . elChildren  
+                                                            . last
+                                                            . elChildren 
+                                                            . last 
+                                                            . elChildren 
+                                                            $ e )
+                                                        (getName
+                                                            . head
+                                                            . elContent 
+                                                            . head
+                                                            . elChildren
+                                                            . head 
+                                                            . elChildren  
+                                                            . head 
+                                                            . tail 
+                                                            . elChildren 
+                                                            . head 
+                                                            . elChildren 
+                                                            $ e )
                                                  _ -> Nothing
                 repeatEvents :: [Element] -> [Element]
                 repeatEvents [] = []
