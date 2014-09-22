@@ -7,8 +7,8 @@ GermanWeekday = [(u'Mo', u'Montag'),
                 (u'Mi', u'Mittwoch'), 
                 (u'Do', u'Donnerstag'),
                 (u'Fr', u'Freitag')]
-Lectures = [(u'DIS+LAG', u'Mathematik 1 fuer Informatiker: Diskrete Strukturen und Lineare Algebra', u'MA'),
-                (u'EMI', u'Einfuehrung in die Medieninformatik', u'INF'),
+Lectures = [(u'DIS+LAG', u'Mathematik 1 fr Informatiker: Diskrete Strukturen und Lineare Algebra', u'MA'),
+                (u'EMI', u'Einfhrung in die Medieninformatik', u'INF'),
                 (u'AuD',u'Algorithmen und Datenstrukturen', u'INF'),
                 (u'TGI', u'Technische Grundlagen der Informatik', u'INF'),
                 (u'RA', u'Rechnerarchitektur I', u'INF')]
@@ -46,41 +46,54 @@ class Event(object):
         self.Location = location
         self.Teacher = teacher
     
-def loadFileToString(filename):
+def loadFileToPy(filename):
     with open (filename, "r") as myfile:
         data = myfile.read()
     udata=data.decode("utf-8")
     udata = udata.replace(u'&nbsp;', u'leer')
+    udata = udata.replace(u'&amp;', u'und')
+    udata = udata.replace('fr' , 'fuer')
     asciidata=udata.encode("ascii","ignore")
     asciidata += '</body></html>'
     #data = unicode(data)
-    #print data
-    return asciidata
+    #print asciidata
+    return ET.fromstring(asciidata)
 
 
 
-
-def getTable(xmlContent):
-    root = ET.fromstring(xmlContent)
-    s =root[1][0][-1][-1][0][-1][0]
-    tablecode = s.text.split()[-1]
-    #print tablecode
     
-    ttable = root[1][1]
-    col =1
+def makeSomething(root):
+    html = ' '
+    for x in range(0,42,3):
+        print x
+        s = root[1][x][-1][-1][0][-1][0]
+        #print s
+        tablecode = s.text.split()[-1]
+        table = getTable(root[1][x+1], tablecode)
+        html += giveTableAsHtml(table)
+    output = open('output.html', 'w')
+    output.write(enclosureWithHtmlBody(html))
+        
+
+def getTable(ttable, tablecode):
+    row = 1
     events = []
     for x in range(5):
         events.append([None,None,None,None,None,None,None])        
-    #events = [[]]
+    add = 1
+    if ttable[1][0].get('rowspan')=='2':
+        add = 2
+    #print add
     for day in range(5):
         col =1
-        dayrow = ttable[(day + 1)]
-        print "next"
-        print day
+        dayrow = ttable[row]
+        row += add
+        #print "next"
+        #print day
         for slot in range(1,8):
-            eventfield = dayrow[col]
             #print col
-            #print event.text
+            eventfield = dayrow[col]
+            ##print event.text
             if eventfield.text == "leer" :
                 col = col +2
             else:
@@ -119,49 +132,51 @@ def getEventFromElement(eventfield, day, slot):
         teacher
     )
     return newevent
-    #print newevent.Name
-    #print Lectures[newevent.Name][1]
+    ##print newevent.Name
+    ##print Lectures[newevent.Name][1]
             
 def giveTableAsJson(table, filename):
     obj=MyEncoder().encode(table)
     with open(filename, 'w') as outfile:
         json.dump(obj, outfile)
        
-def giveTableAsHtml(table, filename):
-    html = "<html xmlns='http://www.w3.org/1999/xhtml'><body>"
-    html += u'<h2>' + table.Code + u'<h2><table><tbody><tr><td>' + table.Code + u'</td>'
+def enclosureWithHtmlBody(htmlContent):
+    return "<html xmlns='http://www.w3.org/1999/xhtml'><body>" + \
+            htmlContent + \
+            '</body></html>'
+
+    
+def giveTableAsHtml(table):
+    html = u'<h2>' + table.Code + u'</h2><table><tbody><tr><td>' + table.Code + u'</td>'
     for day in range(5):
         html += '<td colspan="2" class="plan_tage">' + GermanWeekday[day][1] + '</td>'
-    html += '</td></tr>'
+    html += '</tr>'
     for slot  in range(7):
         html += '<tr><td class="plan_stunden">' + Slots[slot][2] +  \
-                '. DS</td><td colspan="2" class="plan_name"></td>'
+                '</td>'
+        print slot
         for day in range(5):
             html += '<td colspan="2" class="plan_name">'
             if table.Events[day][slot]:
                 html += table.Events[day][slot].NameShort
             html += '</td>'
-        html += '</tr><tr><td class="plan_uhrzeit">' + Slots[slot][0] + ' - ' + \
+        html += '<tr><td class="plan_uhrzeit">' + Slots[slot][0] + ' - ' + \
                  Slots[slot][1] + '</td>'
-        
-        
         for day in range(5):
             html += '<td class="plan_dozent">'
             if table.Events[day][slot] is not None:
                 html += table.Events[day][slot].Teacher
             html += '</td><td class="plan_raum">'
-            print day
+            #print day
             if table.Events[day][slot] is not None:
                 html += table.Events[day][slot].Location
             html += '</td>'
-        html += '</tr>'
-    html += '</body></html>'
-    output = open(filename, 'w')
-    output.write(html)
-    
+    html += '</tr></tbody></table><hr style="page-break-after:always;width:0px"/>'
+    return html
 
 if __name__ == '__main__':
-    giveTableAsHtml(getTable(loadFileToString('140918_studentensets_org.htm')), 'InfBa_01.html  ')
+    makeSomething(loadFileToPy('140918_studentensets_org.htm'))
+    #giveTableAsHtml(getTable(loadFileToString('140918_studentensets_org.htm')), 'InfBa_01.html  ')
         
       
       
