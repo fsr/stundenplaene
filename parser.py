@@ -90,7 +90,7 @@ def getTable(ttable, tablecode):
         row += add
         #print "next"
         #print day
-        for slot in range(1,8):
+        for slot in range(7):
             #print col
             eventfield = dayrow[col]
             ##print event.text
