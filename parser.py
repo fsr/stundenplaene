@@ -65,7 +65,7 @@ def loadFileToPy(filename):
 def makeSomething(root):
     html = ' '
     for x in range(0,42,3):
-        print x
+        #print x
         s = root[1][x][-1][-1][0][-1][0]
         #print s
         tablecode = s.text.split()[-1]
@@ -147,31 +147,32 @@ def enclosureWithHtmlBody(htmlContent):
 
     
 def giveTableAsHtml(table):
-    html = u'<h2>' + table.Code + u'</h2><table><tbody><tr><td>' + table.Code + u'</td>'
+    html = u'<h2>' + table.Code + u'</h2>\n<table><tbody>\n\t<tr>\n\t\t<td>' + table.Code + u'</td>\n'
     for day in range(5):
-        html += '<td colspan="2" class="plan_tage">' + GermanWeekday[day][1] + '</td>'
-    html += '</tr>'
+        html += '\t\t<td colspan="2" class="plan_tage">' + GermanWeekday[day][1] + '</td>\n'
+    html += '\t</tr>\n'
     for slot  in range(7):
-        html += '<tr><td class="plan_stunden">' + Slots[slot][2] +  \
-                '</td>'
-        print slot
+        html += '\t<tr>\n\t\t<td class="plan_stunden">' + Slots[slot][2] +  \
+                '</td>\n'
+        #print slot
         for day in range(5):
-            html += '<td colspan="2" class="plan_name">'
+            html += '\t\t<td colspan="2" class="plan_name">'
             if table.Events[day][slot]:
                 html += table.Events[day][slot].NameShort
-            html += '</td>'
-        html += '<tr><td class="plan_uhrzeit">' + Slots[slot][0] + ' - ' + \
-                 Slots[slot][1] + '</td>'
+            html += '</td>\n'
+        html += '\t</tr>\n\t<tr>\n\t\t<td class="plan_uhrzeit">' + Slots[slot][0] + ' - ' + \
+                 Slots[slot][1] + '</td>\n'
         for day in range(5):
-            html += '<td class="plan_dozent">'
+            html += '\t\t<td class="plan_dozent">'
             if table.Events[day][slot] is not None:
                 html += table.Events[day][slot].Teacher
-            html += '</td><td class="plan_raum">'
+            html += '</td>\n\t\t<td class="plan_raum">'
             #print day
             if table.Events[day][slot] is not None:
                 html += table.Events[day][slot].Location
-            html += '</td>'
-    html += '</tr></tbody></table><hr style="page-break-after:always;width:0px"/>'
+            html += '</td>\n'
+        html += '\t</tr>\n'
+    html += '</tbody>\n</table>\n<hr style="page-break-after:always;width:0px"/>\n'
     return html
 
 if __name__ == '__main__':
