@@ -1,35 +1,49 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-import Text.Hamlet
+-- CAUTION: this parser will discard the second row in a weekday,
+-- so make sure your document does not store any information
+-- exclusively in this second pointless row!
+
+-- Also, the current version requires fixing the MINF03 plan (colspan='4').
+
 import Text.Blaze.Renderer.String -- TODO: choose better instance, UTF8 and stuff...
+import Text.Hamlet
+import Text.HTML.TagSoup
+import Text.Parsec
 import Text.XML.Light
+import Control.Applicative ((*>), (<*))
+import Control.Arrow (second)
+import Control.Monad (when, void)
+import Data.Char (isSpace)
 import Data.List (transpose)
 import Data.List.Split (chunksOf, splitOn)
 import Data.Maybe (fromJust, catMaybes)
 import Debug.Trace (trace)
 
 data Event = Event { sname    :: String
+                   , stype    :: String
                    , sweekday :: String
                    , sstart   :: String
                    , send     :: String
                    , sroom    :: String
                    , steacher :: String
                    }
-             deriving Eq
+             deriving (Eq, Show)
 type Slot = Maybe Event
-newtype Day = Day [Slot]
+newtype Day = Day [Slot] deriving Show
 newtype Timeslot = Timeslot [Slot]
+type TimeState = (Int, Int) -- Day and timeslot number, zero-indexed
 
 germanweekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
 starttimes = ["7:30", "9:20",  "11:10", "13:00", "14:50", "16:40", "18:30"]
 endtimes   = ["9:00", "10:50", "12:40", "14:30", "16:20", "18:10", "20:00"]
 timespans = zipWith (\a b -> a++" - "++b) starttimes endtimes
 
-main = readFile "/home/sjm/programming/stundenplaene/clean.txt" >>= writeFile "output.htm" . concatMap (getPlanAsHtml . parseInputText) . tail . splitOn "INF 1"
-       -- readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "/tmp/output.htm" . concatMap ppContent . concatMap getPlanAsTable . parseInputHtml
+main = readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "/tmp/output.htm" . concatMap (getPlanAsHtml . second shortenNames) . parseInputHtml
+       --readFile "/home/sjm/programming/stundenplaene/input.htm" >>= print . head . parseInputHtml
 
 getPlanAsHtml :: (String, [Day]) -> String
-getPlanAsHtml (pname, p) = renderMarkup $
+getPlanAsHtml (pname, p) = renderMarkup $ -- TODO: Umlauts -> Entities
     [shamlet|
         <h2>#{pname}
         <table border=2>
@@ -44,6 +58,7 @@ getPlanAsHtml (pname, p) = renderMarkup $
                        <td .plan_name colspan=2>
                            $maybe e <- slot
                                #{sname e}
+                               #{stype e}
                <tr>
                    <td .plan_uhrzeit> #{timespans !! (nr - 1)}
                    $forall slot <- slots
@@ -62,72 +77,104 @@ getPlanAsHtml (pname, p) = renderMarkup $
         transpose' :: [Day] -> [Timeslot]
         transpose' = map Timeslot . transpose . map (\(Day d) -> d)
 
-
 parseInputHtml :: String -> [(String, [Day])]
-parseInputHtml = (:[]) . parseTable . head
+parseInputHtml = map parseTable
                . chunksOf 2 -- each plan contains two tables
                . findElements (QName "table" (Just "http://www.w3.org/1999/xhtml") Nothing)
                . fromJust
                . parseXMLDoc
     where
         parseTable :: [Element] -> (String, [Day])
-        parseTable [headtable, contenttable] = ( getCaption
-                                               . head
-                                               . elContent
-                                               . firstChild
-                                               . lastChild
-                                               . lastChild
-                                               . lastChild
-                                               . lastChild
-                                               $ headtable, sorteventsintoplan
-                                                          . (\o -> trace (show $ length o) o)
-                                                          . catMaybes
-                                                          . concatMap (uncurry getEventsPerTimeslot)
-                                                          . zip [0..]
-                                                          . map ( zip [0..]
-                                                                . map head     -- drop every 
-                                                                . chunksOf 2   -- second (useless), after we
-                                                                . repeatEvents -- repeat proper 2-hour cells once
-                                                                . tail
-                                                                . elChildren)
-                                                          . tail
-                                                          . elChildren
-                                                          $ contenttable )
-            where
-                getCaption (Text (CData _ s _)) = drop 3 . last $ splitOn " " s
-                firstChild = head . elChildren
-                lastChild = last . elChildren
-                getEventsPerTimeslot :: Int -> [(Int, Element)] -> [Slot]
-                getEventsPerTimeslot slotnr = map (getSlot slotnr)
-                getSlot :: Int -> (Int, Element) -> Slot
-                getSlot slotnr (daynr, e) = if (max slotnr daynr > 6) then error (show . head . tail $ elContent e) else case tail $ elContent e of
-                                                 [] -> Nothing
-                                                 (Elem table : _)  -> Just $ Event "Foo"
-                                                                                   (germanweekdays !! daynr)
-                                                                                   (starttimes !! slotnr)
-                                                                                   (endtimes !! slotnr)
-                                                                                   "y"
-                                                                                   "x"
-                                                 _ -> Nothing
-                repeatEvents :: [Element] -> [Element]
-                repeatEvents [] = []
-                repeatEvents (x : xs) = if findAttr (QName "colspan" (Just "http://www.w3.org/1999/xhtml") Nothing) x == Nothing
-                                        then x : repeatEvents xs
-                                        else x : x : repeatEvents xs
+        parseTable [headtable, contenttable] = ( (\x -> trace x x) $ getPlanName headtable
+                                               , getDayList $ parseTags . showElement $ contenttable) -- out of one HTML library into the next. This can't be right. TODO maybe?
+        getPlanName = getCaption
+                    . head
+                    . elContent
+                    . firstChild
+                    . lastChild
+                    . lastChild
+                    . lastChild
+                    . lastChild
+        getDayList ts = let usefultags = filter (\t -> if isTagText t
+                                                       then not . all isSpace $ fromTagText t
+                                                       else True) ts in
+                        case runParser tableParser (-1,undefined) "plans" usefultags of
+                            Left err -> error $ show err
+                            Right dl -> dl
+        getCaption (Text (CData _ s _)) = drop 3 . last $ splitOn " " s
+        firstChild = head . elChildren
+        lastChild = last . elChildren
+        -- TagSoup Parsec functions
+        tsPred :: (Tag String -> Bool) -> Parsec [Tag String] u (Tag String)
+        tsPred pred = tokenPrim (show) (\pos x xs -> incSourceColumn pos 1) (\x -> if pred x then Just x else Nothing)
+        tsExactTag :: (Tag String) -> Parsec [Tag String] u (Tag String)
+        tsExactTag t = tsPred (\x -> t == x)
+        tsTag :: (Tag String) -> Parsec [Tag String] u (Tag String)
+        tsTag t = tsPred (~== t)
+        tsInsideTag :: String -> Parsec [Tag String] u a -> Parsec [Tag String] u a
+        tsInsideTag name = between (tsTag $ TagOpen name []) (tsTag $ TagClose name)
+        tsNoClosing :: String -> Parsec [Tag String] u (Tag String)
+        tsNoClosing s = tsPred (\t -> case t of TagClose n -> n /= s; _ -> True)
+        tsOpenClose :: String -> Parsec [Tag String] u ()
+        tsOpenClose s = tsTag (TagOpen s []) >> tsTag (TagClose s) >> return ()
+        -- The actual parsing
+        tableParser :: Parsec [Tag String] TimeState [Day]
+        tableParser = do
+                      tsTag (TagOpen "table" [])
+                      many $ tsNoClosing "tr"
+                      tsTag (TagClose "tr")
+                      count 5 $ dayParser
+        dayParser :: Parsec [Tag String] TimeState Day
+        dayParser = do
+                    modifyState (\(daynr,_) -> (daynr + 1, 0))
+                    tsTag (TagOpen "tr" [])
+                    (TagOpen _ weekdayAttribs) <- tsTag (TagOpen "td" []) <* anyToken <* tsTag (TagClose "td")
+                    slots <- count 7 $ slotParser
+                    tsTag (TagClose "tr")
+                    when (lookup "rowspan" weekdayAttribs == Just "2") $ void $ tsInsideTag "tr" $ count 7 $ slotParser
+                    return $ Day slots
+        slotParser :: Parsec [Tag String] TimeState Slot
+        slotParser = (try filledSlot <|> emptySlot) <* (modifyState $ second (+1))
+        filledSlot = do
+                     tsTag (TagOpen "td" [("colspan","2")])
+                     (teacher,_) <- tsInsideTag "table" $ objectCellContents
+                     (name, eventtype) <- tsInsideTag "table" $ objectCellContents
+                     (time, place) <- tsInsideTag "table" $ objectCellContents
+                     tsTag (TagClose "td")
+                     (daynr, slotnr) <- getState
+                     return $ Just $ Event name
+                                           eventtype
+                                           (germanweekdays !! daynr)
+                                           (starttimes !! slotnr)
+                                           (endtimes !! slotnr)
+                                           place
+                                           teacher
+        objectCellContents :: Parsec [Tag String] TimeState (String, String)
+        objectCellContents = do
+                             tsOpenClose "col"
+                             optional $ tsOpenClose "col"
+                             tsTag (TagOpen "tr" [])
+                             let ex = tsInsideTag "td" $ tsInsideTag "font" $ option (TagText "") $ tsTag (TagText "")
+                             TagText s1 <- ex
+                             TagText s2 <- option (TagText "") $ ex
+                             tsTag (TagClose "tr")
+                             many $ tsNoClosing "table"
+                             return (s1, s2)
+        emptySlot = do
+                    tsOpenClose "td"
+                    tsOpenClose "td"
+                    return Nothing
+        piep x = getState >>= (\s -> trace (show s) x)
 
-
-parseInputText :: String -> (String, [Day])
-parseInputText fullplan = (last . splitOn " " . head . lines $ fullplan, createplan . tail . lines $ fullplan)
+shortenNames :: [Day] -> [Day]
+shortenNames = map (\(Day sl) -> Day $ map go sl)
     where
-        createplan = sorteventsintoplan . map createeventfromstring
-        createeventfromstring = createeventfromlist . splitOn "\t"
-        createeventfromlist sl = if length sl < 7 then (error $ "Too short line: " ++ (show sl)) else
-                                    Event (sl!!1) (sl!!2) (sl!!3) (sl!!4) (sl!!5) (niceteacher $ sl!!6)
-        niceteacher = clearifunannounced . last . splitOn " "
-        clearifunannounced name =  if length name < 2 then error $ "Too short name: " ++ name else
-                                if name!!0 == 'N' && name!!1 == '.' && name!!2 == 'N' && name!!3 == '.' then "" else
-                                if name!!0 == 'Z' && name!!1 == 'Z' then "" else name
-
-sorteventsintoplan :: [Event] -> [Day]
-sorteventsintoplan ellist = map (\w -> createday . filter ((==) w . sweekday) $ ellist) germanweekdays
-    where createday els = Day $ map (\t -> if t `elem` (map sstart els) then Just (head . filter ((==) t . sstart) $ els) else Nothing) starttimes
+        go Nothing = Nothing
+        go (Just (Event name                                 eventtype weekday start end room teacher)) =
+           (Just (Event (fromJust $ lookup name prettyNames) eventtype weekday start end room teacher))
+        prettyNames = [ ("Mathematik 1 für Informatiker: Diskrete Strukturen & Lineare Algebra", "DIS+LAG")
+                      , ("Einführung in die Medieninformatik", "EMI")
+                      , ("Algorithmen und Datenstrukturen", "AUD")
+                      , ("Technische Grundlagen der Informatik", "TGI")
+                      , ("Rechnerarchitektur I", "RA")
+                      ]
