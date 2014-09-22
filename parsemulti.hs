@@ -15,7 +15,7 @@ import Control.Applicative ((*>), (<*))
 import Control.Arrow (second)
 import Control.Monad (when, void)
 import Data.Char (isSpace)
-import Data.List (transpose)
+import Data.List (transpose, isInfixOf)
 import Data.List.Split (chunksOf, splitOn)
 import Data.Maybe (fromJust, catMaybes)
 import Debug.Trace (trace)
@@ -170,11 +170,13 @@ shortenNames :: [Day] -> [Day]
 shortenNames = map (\(Day sl) -> Day $ map go sl)
     where
         go Nothing = Nothing
-        go (Just (Event name                                 eventtype weekday start end room teacher)) =
-           (Just (Event (fromJust $ lookup name prettyNames) eventtype weekday start end room teacher))
+        go (Just (Event    name eventtype weekday start end room    teacher)) =
+           (Just (Event newname eventtype weekday start end room newteacher))
+            where newname = fromJust $ lookup name prettyNames
+                  newteacher = if "N.N" `isInfixOf` teacher then "" else teacher
         prettyNames = [ ("Mathematik 1 für Informatiker: Diskrete Strukturen & Lineare Algebra", "DIS+LAG")
                       , ("Einführung in die Medieninformatik", "EMI")
-                      , ("Algorithmen und Datenstrukturen", "AUD")
+                      , ("Algorithmen und Datenstrukturen", "AuD")
                       , ("Technische Grundlagen der Informatik", "TGI")
                       , ("Rechnerarchitektur I", "RA")
                       ]
