@@ -12,13 +12,13 @@ Lectures = [(u'DIS+LAG', u'Mathematik 1 fuer Informatiker: Diskrete Strukturen u
                 (u'AuD',u'Algorithmen und Datenstrukturen', u'INF'),
                 (u'TGI', u'Technische Grundlagen der Informatik', u'INF'),
                 (u'RA', u'Rechnerarchitektur I', u'INF')]
-Times = [(u'7:30', u'9:00'),
-                (u'09:20', u'10:50'),
-                (u'11:10', u'12:40'),
-                (u'13:00', u'14:30'),
-                (u'14:50', u'16:20'),
-                (u'16:40', u'18:10'),
-                (u'18:30', u'20:00')]
+Slots = [(u'7:30', u'9:00', u'1. DS'),
+        (u'09:20', u'10:50', u'2. DS'),
+        (u'11:10', u'12:40', u'3. DS'),
+        (u'13:00', u'14:30', u'4. DS'),
+        (u'14:50', u'16:20', u'5. DS'),
+        (u'16:40', u'18:10', u'6. DS'),
+        (u'18:30', u'20:00', u'7. DS')]
 Kinds = [(u'V',u'Vorlesung'),
             (u'U', u'Uebung')]
 
@@ -32,13 +32,14 @@ class Table(object):
         self.Events = events
 
 class Event(object):
-    def __init__(self, kind, kindShort, name, nameShort, fac, day, slot, start, end, location, teacher):
+    def __init__(self, kind, kindShort, name, nameShort, fac, day, dayShort, slot, start, end, location, teacher):
         self.Kind = kind
         self.KindShort = kindShort
         self.Name = name
         self.NameShort = nameShort
         self.Fac = fac
         self.Day = day
+        self.DayShort = dayShort
         self.Slot = slot
         self.Start = start
         self.End = end
@@ -47,8 +48,14 @@ class Event(object):
     
 def loadFileToString(filename):
     with open (filename, "r") as myfile:
-        data=myfile.read().replace('&nbsp;', 'leer')
-    return data
+        data = myfile.read()
+    udata=data.decode("utf-8")
+    udata = udata.replace(u'&nbsp;', u'leer')
+    asciidata=udata.encode("ascii","ignore")
+    asciidata += '</body></html>'
+    #data = unicode(data)
+    #print data
+    return asciidata
 
 
 
@@ -62,25 +69,28 @@ def getTable(xmlContent):
     ttable = root[1][1]
     col =1
     events = []
-    for day in range(1,6):
+    for x in range(5):
+        events.append([None,None,None,None,None,None,None])        
+    #events = [[]]
+    for day in range(5):
         col =1
-        dayrow = ttable[day]
+        dayrow = ttable[(day + 1)]
         print "next"
         print day
         for slot in range(1,8):
             eventfield = dayrow[col]
             #print col
             #print event.text
-            if eventfield.text == "yxfd" :
+            if eventfield.text == "leer" :
                 col = col +2
             else:
-                events.append(getEventFromElement(eventfield, day, slot))
+                events[day][slot] = getEventFromElement(eventfield, day, slot)
                 col = col +1
     return Table(tablecode, events)
 
-def getEventFromElement(eventfield, day, slot):
-    name = 1    #eventfield[1][-1][0][0].text
-    kind = 0
+def getEventFromElement(eventfield, day, slot): 
+    nameNr = 1    #
+    kindNr = 0
     for x in range(5):
         if Lectures[x][1] == (eventfield[1][-1][0][0].text):
             nameNr = x
@@ -90,6 +100,8 @@ def getEventFromElement(eventfield, day, slot):
             kindNr = x
             break
     loc = eventfield[-1][-1][-1][0].text
+    if (loc) is None:
+        loc = ''
     teacher = eventfield[0][1][0][0].text
 
     newevent = Event(
@@ -98,25 +110,58 @@ def getEventFromElement(eventfield, day, slot):
         Lectures[nameNr][1],
         Lectures[nameNr][0],
         Lectures[nameNr][2],
-        day,
+        GermanWeekday[day][1],
+        GermanWeekday[day][0],
         slot,
-        Times[slot][0],
-        Times[slot][1],
+        Slots[slot][0],
+        Slots[slot][1],
         loc,
         teacher
     )
     return newevent
     #print newevent.Name
-    #print Lectures[newevent.Name][1]    
+    #print Lectures[newevent.Name][1]
             
 def giveTableAsJson(table, filename):
     obj=MyEncoder().encode(table)
     with open(filename, 'w') as outfile:
         json.dump(obj, outfile)
        
+def giveTableAsHtml(table, filename):
+    html = "<html xmlns='http://www.w3.org/1999/xhtml'><body>"
+    html += u'<h2>' + table.Code + u'<h2><table><tbody><tr><td>' + table.Code + u'</td>'
+    for day in range(5):
+        html += '<td colspan="2" class="plan_tage">' + GermanWeekday[day][1] + '</td>'
+    html += '</td></tr>'
+    for slot  in range(7):
+        html += '<tr><td class="plan_stunden">' + Slots[slot][2] +  \
+                '. DS</td><td colspan="2" class="plan_name"></td>'
+        for day in range(5):
+            html += '<td colspan="2" class="plan_name">'
+            if table.Events[day][slot]:
+                html += table.Events[day][slot].NameShort
+            html += '</td>'
+        html += '</tr><tr><td class="plan_uhrzeit">' + Slots[slot][0] + ' - ' + \
+                 Slots[slot][1] + '</td>'
+        
+        
+        for day in range(5):
+            html += '<td class="plan_dozent">'
+            if table.Events[day][slot] is not None:
+                html += table.Events[day][slot].Teacher
+            html += '</td><td class="plan_raum">'
+            print day
+            if table.Events[day][slot] is not None:
+                html += table.Events[day][slot].Location
+            html += '</td>'
+        html += '</tr>'
+    html += '</body></html>'
+    output = open(filename, 'w')
+    output.write(html)
+    
 
 if __name__ == '__main__':
-    giveTableAsJson(getTable(loadFileToString('140918_studentensets.htm')), 'InfBa_01.json')
+    giveTableAsHtml(getTable(loadFileToString('140918_studentensets_org.htm')), 'InfBa_01.html  ')
         
       
       
