@@ -39,13 +39,12 @@ starttimes = ["7:30", "9:20",  "11:10", "13:00", "14:50", "16:40", "18:30"]
 endtimes   = ["9:00", "10:50", "12:40", "14:30", "16:20", "18:10", "20:00"]
 timespans = zipWith (\a b -> a++" - "++b) starttimes endtimes
 
-main = readFile "/home/sjm/programming/stundenplaene/input.htm" >>= writeFile "/tmp/output.htm" . concatMap (getPlanAsHtml . second shortenNames) . parseInputHtml
-       --readFile "/home/sjm/programming/stundenplaene/input.htm" >>= print . head . parseInputHtml
+main = readFile "input.htm" >>= writeFile "output.htm" . concatMap (getPlanAsHtml . second shortenNames) . parseInputHtml
 
 getPlanAsHtml :: (String, [Day]) -> String
 getPlanAsHtml (pname, p) = renderMarkup $ -- TODO: Umlauts -> Entities
     [shamlet|
-        <h2>#{pname}
+        <h2>#{prettifyPlanName pname}
         <table border=2>
            <tr>
                <td .plan_leer>#{pname}
@@ -76,6 +75,11 @@ getPlanAsHtml (pname, p) = renderMarkup $ -- TODO: Umlauts -> Entities
         -- transpose' because tables are written horizontally
         transpose' :: [Day] -> [Timeslot]
         transpose' = map Timeslot . transpose . map (\(Day d) -> d)
+        prettifyPlanName :: String -> String
+        prettifyPlanName ('M':'I':'N':'F':'-':'B':'/':cs) = "INF-B/" ++ (zeroPrint . (+4) . read $ cs) -- TODO: yay hardcoding
+        prettifyPlanName n = n
+        zeroPrint :: Int -> String
+        zeroPrint n | n < 10 = '0' : (show n) | True = show n
 
 parseInputHtml :: String -> [(String, [Day])]
 parseInputHtml = map parseTable
