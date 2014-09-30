@@ -6,6 +6,8 @@
 
 -- Also, the current version requires fixing the MINF03 plan (colspan='4').
 
+-- Oh and it assumes there are exactly 4 INF-B plans, see the yay-hardcoding-comment below.
+
 import Text.Blaze.Renderer.String -- TODO: choose better instance, UTF8 and stuff...
 import Text.Hamlet
 import Text.HTML.TagSoup
@@ -13,7 +15,7 @@ import Text.Parsec
 import Text.XML.Light
 import Control.Applicative ((*>), (<*))
 import Control.Arrow (second)
-import Control.Monad (when, void)
+import Control.Monad (when, void, liftM)
 import Data.Char (isSpace)
 import Data.List (transpose, isInfixOf)
 import Data.List.Split (chunksOf, splitOn)
@@ -28,9 +30,9 @@ data Event = Event { sname    :: String
                    , sroom    :: String
                    , steacher :: String
                    }
-             deriving (Eq, Show)
+             deriving (Eq, Show, Read)
 type Slot = Maybe Event
-newtype Day = Day [Slot] deriving Show
+newtype Day = Day [Slot] deriving (Show, Read)
 newtype Timeslot = Timeslot [Slot]
 type TimeState = (Int, Int) -- Day and timeslot number, zero-indexed
 
@@ -39,7 +41,23 @@ starttimes = ["7:30", "9:20",  "11:10", "13:00", "14:50", "16:40", "18:30"]
 endtimes   = ["9:00", "10:50", "12:40", "14:30", "16:20", "18:10", "20:00"]
 timespans = zipWith (\a b -> a++" - "++b) starttimes endtimes
 
-main = readFile "input.htm" >>= writeFile "output.htm" . concatMap (getPlanAsHtml . second shortenNames) . parseInputHtml
+main = do
+       allPlans <- liftM parseInputHtml $ readFile "input.htm"
+       let htmlout = concatMap (getPlanAsHtml . second shortenNames) allPlans
+       writeFile "output.htm" htmlout
+       -- And now for something completely different.
+       anotherPlan <- liftM (parseInputBinary . lines) $ readFile "another.txt"
+       let anotherout = concatMap getPlanAsHtml $ map (uncurry overlayPlans) $ zip allPlans (repeat anotherPlan)
+       writeFile "overlay.htm" anotherout
+
+parseInputBinary :: [[Char]] -> [Day]
+parseInputBinary = map (Day . parseDay) . transpose
+    where
+        parseDay :: [Char] -> [Slot]
+        parseDay = map parseSlot . zip [0..]
+        parseSlot :: (Int, Char) -> Slot
+        parseSlot (n, '#') = Just $ Event "" "" "" (starttimes !! n) (endtimes !! n) "" ""
+        parseSlot (_, ' ') = Nothing
 
 getPlanAsHtml :: (String, [Day]) -> String
 getPlanAsHtml (pname, p) = renderMarkup $ -- TODO: Umlauts -> Entities
@@ -184,3 +202,12 @@ shortenNames = map (\(Day sl) -> Day $ map go sl)
                       , ("Technische Grundlagen der Informatik", "TGI")
                       , ("Rechnerarchitektur I", "RA")
                       ]
+
+overlayPlans :: (String, [Day]) -> [Day] -> (String, [Day])
+overlayPlans (name, p1) p2 = (name, map overlayDays $ zip p1 p2)
+    where
+        overlayDays (Day d1, Day d2) = Day $ map overlaySlots $ zip d1 d2
+        overlaySlots (Nothing, Nothing) = Nothing
+        overlaySlots (Just e, Nothing) = Just $ e {sname = "/////////ERSTI\\\\\\\\\\\\\\\\", stype = "", sroom = "//////////", steacher = "\\\\\\\\\\\\\\\\\\\\\\\\"}
+        overlaySlots (Nothing, Just e) = Just $ e {sname = "//////////////\\\\\\\\\\\\\\\\\\\\\\", stype = "", sroom = "//////////", steacher = "\\\\\\\\\\\\\\\\\\\\\\\\"}
+        overlaySlots (Just e, Just _)  = Just $ e {sname = "/////////ERSTI\\\\\\\\\\\\\\\\", stype = "", sroom = "//////////", steacher = "\\\\\\\\\\\\\\\\\\\\\\\\"}
