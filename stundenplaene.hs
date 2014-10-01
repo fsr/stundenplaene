@@ -17,7 +17,7 @@ import Control.Applicative ((*>), (<*))
 import Control.Arrow (second)
 import Control.Monad (when, void, liftM)
 import Data.Char (isSpace)
-import Data.List (transpose, isInfixOf)
+import Data.List (transpose, isInfixOf, elemIndex)
 import Data.List.Split (chunksOf, splitOn)
 import Data.Maybe (fromJust, catMaybes)
 import Debug.Trace (trace)
@@ -42,12 +42,14 @@ endtimes   = ["9:00", "10:50", "12:40", "14:30", "16:20", "18:10", "20:00"]
 timespans = zipWith (\a b -> a++" - "++b) starttimes endtimes
 
 main = do
-       allPlans <- liftM parseInputHtml $ readFile "input.htm"
-       let htmlout = concatMap (getPlanAsHtml . second shortenNames) allPlans
-       writeFile "output.htm" htmlout
+       parsedPlans <- liftM parseInputHtml $ readFile "input.htm"
+       let cleanedPlans = map (second cleanNames) parsedPlans
+       oneForEachLists <- liftM read $ readFile "extra.dump"
+       let enrichedPlans = foldl (\a x -> map (uncurry insertIntoPlan) $ zip x a) cleanedPlans oneForEachLists
+       writeFile "output.htm" $ concatMap getPlanAsHtml enrichedPlans
        -- And now for something completely different.
        anotherPlan <- liftM (parseInputBinary . lines) $ readFile "another.txt"
-       let anotherout = concatMap getPlanAsHtml $ map (uncurry overlayPlans) $ zip allPlans (repeat anotherPlan)
+       let anotherout = concatMap getPlanAsHtml $ map (uncurry overlayPlans) $ zip enrichedPlans (repeat anotherPlan)
        writeFile "overlay.htm" anotherout
 
 parseInputBinary :: [[Char]] -> [Day]
@@ -188,20 +190,37 @@ parseInputHtml = map parseTable
                     return Nothing
         piep x = getState >>= (\s -> trace (show s) x)
 
-shortenNames :: [Day] -> [Day]
-shortenNames = map (\(Day sl) -> Day $ map go sl)
+cleanNames :: [Day] -> [Day]
+cleanNames = map (\(Day sl) -> Day $ map go sl)
     where
         go Nothing = Nothing
-        go (Just (Event    name eventtype weekday start end room    teacher)) =
-           (Just (Event newname eventtype weekday start end room newteacher))
-            where newname = fromJust $ lookup name prettyNames
-                  newteacher = if "N.N" `isInfixOf` teacher then "" else teacher
+        go (Just e@(Event name eventtype weekday start end room teacher)) =
+            if name == "Mathematik 1 für Informatiker: Diskrete Strukturen & Lineare Algebra"
+            then if eventtype == "Ü"
+                 then Nothing
+                 else Just e {sname = if teacher == "Bodirsky" then "DIS" else "LAG"}
+            else Just e {sname = newname, steacher = newteacher}
+                where newname = fromJust $ lookup name prettyNames
+                      newteacher = if "N.N" `isInfixOf` teacher then "" else teacher
         prettyNames = [ ("Mathematik 1 für Informatiker: Diskrete Strukturen & Lineare Algebra", "DIS+LAG")
                       , ("Einführung in die Medieninformatik", "EMI")
                       , ("Algorithmen und Datenstrukturen", "AuD")
                       , ("Technische Grundlagen der Informatik", "TGI")
                       , ("Rechnerarchitektur I", "RA")
                       ]
+
+insertIntoPlan :: Event -> (String, [Day]) -> (String, [Day])
+insertIntoPlan e = second $ mutate (fromJust $ elemIndex (sweekday e) germanweekdays) insertIntoDay
+    where
+        mutate :: Int -> (a -> a) -> [a] -> [a]
+        mutate 0 f (x:xs) = f x : xs
+        mutate n f (x:xs) = x : mutate (n - 1) f xs
+        insertIntoDay :: Day -> Day
+        insertIntoDay (Day sl) = Day $ mutate (fromJust $ elemIndex (sstart e) starttimes)
+                                              (\x -> if x == Nothing
+                                                     then Just e
+                                                     else trace ("insert: not overwriting " ++ show x ++ " with " ++ show e) $ Just e)
+                                              sl
 
 overlayPlans :: (String, [Day]) -> [Day] -> (String, [Day])
 overlayPlans (name, p1) p2 = (name, map overlayDays $ zip p1 p2)
