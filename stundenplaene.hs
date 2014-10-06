@@ -36,6 +36,10 @@ newtype Day = Day [Slot] deriving (Show, Read)
 newtype Timeslot = Timeslot [Slot]
 type TimeState = (Int, Int) -- Day and timeslot number, zero-indexed
 
+mutate :: Int -> (a -> a) -> [a] -> [a]
+mutate 0 f (x:xs) = f x : xs
+mutate n f (x:xs) = x : mutate (n - 1) f xs
+
 germanweekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
 starttimes = ["7:30", "9:20",  "11:10", "13:00", "14:50", "16:40", "18:30"]
 endtimes   = ["9:00", "10:50", "12:40", "14:30", "16:20", "18:10", "20:00"]
@@ -46,11 +50,16 @@ main = do
        let cleanedPlans = map (second cleanNames) parsedPlans
        oneForEachLists <- liftM read $ readFile "extra.dump"
        let enrichedPlans = foldl (\a x -> map (uncurry insertIntoPlan) $ zip x a) cleanedPlans oneForEachLists
-       writeFile "output.htm" $ concatMap getPlanAsHtml enrichedPlans
+       let lastminutePlans = mutate (5-1) (insertIntoPlan $ Event "EMI" "Ü" "Freitag" "13:00" "14:30" "" "")
+                           . mutate (10-1) (insertIntoPlan $ Event "EMI" "Ü" "Dienstag" "9:20" "10:50" "" "")
+                           . mutate (5-1) (clearFromPlan $ Event "" "" "Freitag" "7:30" "" "" "")
+                           . mutate (10-1) (clearFromPlan $ Event "" "" "Freitag" "14:50" "" "" "")
+                           $ enrichedPlans
+       writeFile "output.htm" $ concatMap getPlanAsHtml lastminutePlans
        -- And now for something completely different.
-       anotherPlan <- liftM (parseInputBinary . lines) $ readFile "another.txt"
-       let anotherout = concatMap getPlanAsHtml $ map (uncurry overlayPlans) $ zip enrichedPlans (repeat anotherPlan)
-       writeFile "overlay.htm" anotherout
+       -- anotherPlan <- liftM (parseInputBinary . lines) $ readFile "another.txt"
+       -- let anotherout = concatMap getPlanAsHtml $ map (uncurry overlayPlans) $ zip enrichedPlans (repeat anotherPlan)
+       -- writeFile "overlay.htm" anotherout
 
 parseInputBinary :: [[Char]] -> [Day]
 parseInputBinary = map (Day . parseDay) . transpose
@@ -64,7 +73,7 @@ parseInputBinary = map (Day . parseDay) . transpose
 getPlanAsHtml :: (String, [Day]) -> String
 getPlanAsHtml (pname, p) = renderMarkup $ -- TODO: Umlauts -> Entities
     [shamlet|
-        <h2>#{prettifyPlanName pname}
+        <h2 style="page-break-before: always;">#{prettifyPlanName pname}
         <table border=2>
            <tr>
                <td .plan_leer>#{pname}
@@ -79,7 +88,7 @@ getPlanAsHtml (pname, p) = renderMarkup $ -- TODO: Umlauts -> Entities
                                #{sname e}
                                #{stype e}
                <tr>
-                   <td .plan_uhrzeit> #{timespans !! (nr - 1)}
+                   <td .plan_uhrzeit> #{starttimes !! (nr - 1)} -<br /> #{endtimes !! (nr - 1)}
                    $forall slot <- slots
                        <td .plan_dozent>
                            $maybe e <- slot
@@ -209,17 +218,24 @@ cleanNames = map (\(Day sl) -> Day $ map go sl)
                       , ("Rechnerarchitektur I", "RA")
                       ]
 
+clearFromPlan :: Event -> (String, [Day]) -> (String, [Day])
+clearFromPlan e = second $ mutate (fromJust $ elemIndex (sweekday e) germanweekdays) clearInDay
+    where
+        clearInDay :: Day -> Day
+        clearInDay (Day sl) = Day $ mutate (fromJust $ elemIndex (sstart e) starttimes)
+                                           (\x -> if x == Nothing
+                                                  then trace ("removing... nothing? what? supposedly at " ++ show e) Nothing
+                                                  else Nothing)
+                                           sl
+
 insertIntoPlan :: Event -> (String, [Day]) -> (String, [Day])
 insertIntoPlan e = second $ mutate (fromJust $ elemIndex (sweekday e) germanweekdays) insertIntoDay
     where
-        mutate :: Int -> (a -> a) -> [a] -> [a]
-        mutate 0 f (x:xs) = f x : xs
-        mutate n f (x:xs) = x : mutate (n - 1) f xs
         insertIntoDay :: Day -> Day
         insertIntoDay (Day sl) = Day $ mutate (fromJust $ elemIndex (sstart e) starttimes)
                                               (\x -> if x == Nothing
                                                      then Just e
-                                                     else trace ("insert: not overwriting " ++ show x ++ " with " ++ show e) $ Just e)
+                                                     else trace ("insert: not overwriting " ++ show x ++ " with " ++ show e) x)
                                               sl
 
 overlayPlans :: (String, [Day]) -> [Day] -> (String, [Day])
